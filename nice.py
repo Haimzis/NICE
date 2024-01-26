@@ -47,7 +47,7 @@ class AdditiveCoupling(nn.Module):
             x1, y2 = x[:, self.mask_config::2], x[:, 1 - self.mask_config::2]
             m = self.transform(y2)
             x2 = x1 - m
-            x = torch.cat([x1, x2], dim=1)
+            x = torch.stack([x1, x2], dim=2).view(-1, self.in_out_dim)
             return x, log_det_J
 
         else:
@@ -55,7 +55,7 @@ class AdditiveCoupling(nn.Module):
             y1, x2 = x[:, self.mask_config::2], x[:, 1 - self.mask_config::2]
             m = self.transform(x2)
             y2 = y1 + m
-            y = torch.cat([y1, y2], dim=1)
+            y = torch.stack([y1, y2], dim=2).view(-1, self.in_out_dim)
             return y, log_det_J
 
 
@@ -106,7 +106,7 @@ class AffineCoupling(nn.Module):
             log_det_J += s.log().sum(dim=1)  # Update log_det_J
 
         # Concatenate the tensors
-        y = torch.cat([x1, x2], dim=1)
+        y = torch.stack([x1, x2], dim=2).view(-1, self.in_out_dim)
 
         return y, log_det_J
     
@@ -137,16 +137,18 @@ class Scaling(nn.Module):
         scale = torch.exp(self.scale) + self.eps
         if reverse:
             x = x / scale
-            log_det_J = -torch.sum(self.scale)
+            log_det_J = -torch.sum(torch.log(scale), dim=1)
         else:
             x = x * scale
-            log_det_J = torch.sum(self.scale)
+            log_det_J = torch.sum(torch.log(scale), dim=1)
+            
         return x, log_det_J
 
 
 """Standard logistic distribution.
 """
-logistic = TransformedDistribution(Uniform(0, 1), [SigmoidTransform().inv, AffineTransform(loc=0., scale=1.)])
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+logistic = TransformedDistribution(Uniform(torch.tensor(0.).to(device), torch.tensor(1.).to(device)), [SigmoidTransform().inv, AffineTransform(loc=0., scale=1.)])
 
 """NICE main model.
 """
@@ -216,6 +218,7 @@ class NICE(nn.Module):
             x, log_det_J = layer(x, log_det_J)
         return x, log_det_J
 
+        
     def log_prob(self, x):
         """Computes data log-likelihood.
 

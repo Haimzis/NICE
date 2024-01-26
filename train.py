@@ -2,28 +2,28 @@
 """
 
 import argparse
-
 import numpy as np
 import torch
 import torchvision
 from torchvision import transforms
 from collections import defaultdict
-from tqdm import trange
+from tqdm import trange, tqdm
 import matplotlib.pyplot as plt
 import nice
 
 
 def train(flow, trainloader, optimizer, epoch):
     flow.train()  # set to training mode
-    loss = 0
-    for inputs, _ in trainloader:
-        inputs = inputs.view(inputs.shape[0], inputs.shape[1] * inputs.shape[2] * inputs.shape[
-            3])  # change  shape from BxCxHxW to Bx(C*H*W)
-        optimizer.zero_grad()  # Zero gradients
-        loss = -flow.log_prob(inputs).mean()  # Compute the negative log likelihood
-        loss.backward()  # Backpropagate the loss
-        optimizer.step()  # Update the model parameters
-    return loss
+    epoch_loss = 0
+    for inputs, _ in tqdm(trainloader, desc=f"Training Epoch {epoch}:", total=len(trainloader)):
+        inputs = inputs.view(inputs.shape[0], inputs.shape[1] * inputs.shape[2] * inputs.shape[3])  # change  shape from BxCxHxW to Bx(C*H*W)
+        inputs = inputs.to(flow.device)
+        optimizer.zero_grad() 
+        loss = -flow.log_prob(inputs).mean() 
+        loss.backward()
+        optimizer.step() 
+        epoch_loss += loss.item()
+    return epoch_loss / len(trainloader)
 
 
 def test(flow, testloader, filename, epoch, sample_shape):
@@ -35,14 +35,13 @@ def test(flow, testloader, filename, epoch, sample_shape):
         samples = samples.view(-1, sample_shape[0], sample_shape[1], sample_shape[2])
         torchvision.utils.save_image(torchvision.utils.make_grid(samples),
                                      './samples/' + filename + 'epoch%d.png' % epoch)
-        test_loss = 0
+        epoch_loss = 0
         for inputs, _ in testloader:
-            inputs = inputs.view(inputs.shape[0], -1)  # Flatten the inputs
-            loss = -flow.log_prob(inputs).mean()  # Compute the negative log likelihood
-            test_loss += loss.item()
-        test_loss /= len(testloader)
-        print('Test Loss after epoch %d: %.3f' % (epoch, test_loss))
-    return loss
+            inputs = inputs.view(inputs.shape[0], inputs.shape[1] * inputs.shape[2] * inputs.shape[3]).to(flow.device)
+            loss = -flow.log_prob(inputs).mean()
+            epoch_loss += loss.item()
+        epoch_loss /= len(testloader)
+    return epoch_loss
 
 def add_noise(x):
     return x + torch.zeros_like(x).uniform_(0., 1. / 256.)
@@ -97,12 +96,22 @@ def main(args):
     optimizer = torch.optim.Adam(
         flow.parameters(), lr=args.lr)
 
+    train_loss_lst, test_loss_lst = [], []
     for epoch in trange(args.epochs):
         train_loss = train(flow, trainloader, optimizer, epoch)
         test_loss = test(flow, testloader, model_save_filename, epoch, sample_shape)
+        train_loss_lst.append(train_loss)
+        test_loss_lst.append(test_loss)
         print(f'Epoch: {epoch}, Train Loss: {train_loss}, Test Loss: {test_loss}')
         torch.save(flow.state_dict(), './models/' + model_save_filename)
 
+    fig, ax = plt.subplots()
+    ax.plot(train_loss_lst)
+    ax.plot(test_loss_lst)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+    ax.legend(['Train Loss','Test Loss'])
+    fig.savefig('./plots/'+ model_save_filename + '.png')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('')
