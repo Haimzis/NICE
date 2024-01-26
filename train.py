@@ -16,10 +16,10 @@ def train(flow, trainloader, optimizer, epoch):
     flow.train()  # set to training mode
     epoch_loss = 0
     for inputs, _ in tqdm(trainloader, desc=f"Training Epoch {epoch}:", total=len(trainloader)):
+        optimizer.zero_grad() 
         inputs = inputs.view(inputs.shape[0], inputs.shape[1] * inputs.shape[2] * inputs.shape[3])  # change  shape from BxCxHxW to Bx(C*H*W)
         inputs = inputs.to(flow.device)
-        optimizer.zero_grad() 
-        loss = -flow.log_prob(inputs).mean() 
+        loss = -flow(inputs).mean() 
         loss.backward()
         optimizer.step() 
         epoch_loss += loss.item()
@@ -37,8 +37,9 @@ def test(flow, testloader, filename, epoch, sample_shape):
                                      './samples/' + filename + 'epoch%d.png' % epoch)
         epoch_loss = 0
         for inputs, _ in testloader:
-            inputs = inputs.view(inputs.shape[0], inputs.shape[1] * inputs.shape[2] * inputs.shape[3]).to(flow.device)
-            loss = -flow.log_prob(inputs).mean()
+            inputs = inputs.to(flow.device)
+            inputs = inputs.view(inputs.shape[0], inputs.shape[1] * inputs.shape[2] * inputs.shape[3])
+            loss = -flow(inputs).mean()
             epoch_loss += loss.item()
         epoch_loss /= len(testloader)
     return epoch_loss

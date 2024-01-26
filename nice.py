@@ -9,8 +9,6 @@ import numpy as np
 
 """Additive coupling layer.
 """
-
-
 class AdditiveCoupling(nn.Module):
     def __init__(self, in_out_dim, mid_dim, hidden, mask_config):
         """Initialize an additive coupling layer.
@@ -24,12 +22,11 @@ class AdditiveCoupling(nn.Module):
         super(AdditiveCoupling, self).__init__()
         self.mask_config = mask_config
         self.in_out_dim = in_out_dim
-        layers = [nn.Linear(in_out_dim // 2, mid_dim)]
-        for _ in range(hidden - 1):
-            layers.append(nn.ReLU())
-            layers.append(nn.Linear(mid_dim, mid_dim))
-        layers.append(nn.ReLU())
-        layers.append(nn.Linear(mid_dim, in_out_dim // 2))
+        input_dim=in_out_dim // 2 + (in_out_dim % 2 > 0) * self.mask_config
+        output_dim=in_out_dim // 2 + (in_out_dim % 2 > 0) * (1 - self.mask_config)
+        layers = [nn.Linear(input_dim, mid_dim), nn.ReLU()]
+        layers.extend(nn.Sequential(nn.Linear(mid_dim, mid_dim), nn.ReLU()) for _ in range(hidden - 1))
+        layers.append(nn.Linear(mid_dim, output_dim))
         self.transform = nn.Sequential(*layers)
 
     def forward(self, x, log_det_J, reverse=False):
@@ -137,11 +134,9 @@ class Scaling(nn.Module):
         scale = torch.exp(self.scale) + self.eps
         if reverse:
             x = x / scale
-            log_det_J = -torch.sum(torch.log(scale), dim=1)
         else:
             x = x * scale
-            log_det_J = torch.sum(torch.log(scale), dim=1)
-            
+        log_det_J = torch.sum(torch.log(scale), dim=1)            
         return x, log_det_J
 
 
@@ -184,7 +179,7 @@ class NICE(nn.Module):
         for i in range(coupling):
             if coupling_type == 'additive':
                 self.layers.append(AdditiveCoupling(in_out_dim, mid_dim, hidden, i % 2))
-            elif coupling_type == 'adaptive':
+            elif coupling_type == 'affine':
                 self.layers.append(AffineCoupling(in_out_dim, mid_dim, hidden, i % 2))
             else:
                 raise ValueError('Coupling type not implemented.')
@@ -198,11 +193,9 @@ class NICE(nn.Module):
         Returns:
             transformed tensor in data space X.
         """
-        x = z
-        log_det_J = 0
+        x, _ = self.scaling_layer(z, reverse=True)
         for layer in reversed(list(self.layers)):
-            x, log_det_J = layer(x, log_det_J, reverse=True)
-        x, _ = self.scaling_layer(x, reverse=True)
+            x, _ = layer(x, 0, reverse=True) # jacobian is not needed for sampling
         return x
 
     def f(self, x):
@@ -213,12 +206,12 @@ class NICE(nn.Module):
         Returns:
             transformed tensor in latent space Z and log determinant Jacobian
         """
-        x, log_det_J = self.scaling_layer(x)
+        log_det_J = 0
         for layer in self.layers:
             x, log_det_J = layer(x, log_det_J)
-        return x, log_det_J
+        z, log_det_J_scale = self.scaling_layer(x)
+        return z, log_det_J + log_det_J_scale
 
-        
     def log_prob(self, x):
         """Computes data log-likelihood.
 
