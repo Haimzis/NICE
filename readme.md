@@ -1,7 +1,8 @@
-# NiceFlow Generative Model
+# NICE: Non-linear Independent Components Estimation Implementation
 
 ## Introduction
-The NiceFlow Generative Model is a machine learning project focusing on generative models using NICE (Non-linear Independent Components Estimation) architecture. This project is structured to experiment with different configurations and datasets.
+This is NICE (Non-linear Independent Components Estimation) architecture implementation. This project is structured to training over different configurations and datasets.
+For more detailed information and theoretical background, refer to the original paper on NICE. You can access it here: [NICE: Non-linear Independent Components Estimation](https://arxiv.org/abs/1410.8516).
 
 ## Project Structure
 The project includes several key directories:
