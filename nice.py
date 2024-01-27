@@ -1,11 +1,11 @@
 """NICE model
 """
-
 import torch
 import torch.nn as nn
 from torch.distributions.transforms import Transform, SigmoidTransform, AffineTransform
 from torch.distributions import Uniform, TransformedDistribution
 import numpy as np
+
 
 """Additive coupling layer.
 """
@@ -29,7 +29,6 @@ class AdditiveCoupling(nn.Module):
         layers.append(nn.Linear(mid_dim, output_dim))
         self.transform = nn.Sequential(*layers)
 
-        
     def forward(self, x, log_det_J, reverse=False):
         """Forward pass.
 
@@ -67,14 +66,13 @@ class AffineCoupling(nn.Module):
 
         layers = [nn.Linear(input_dim, mid_dim), nn.ReLU()]
         layers.extend(nn.Sequential(nn.Linear(mid_dim, mid_dim), nn.ReLU()) for _ in range(hidden - 1))
-        layers.append(nn.Linear(mid_dim, output_dim), nn.Tanh())
+        layers.extend([nn.Linear(mid_dim, output_dim), nn.Tanh()])
         self.scale_net = nn.Sequential(*layers)
         
         layers = [nn.Linear(input_dim, mid_dim), nn.ReLU()]
         layers.extend(nn.Sequential(nn.Linear(mid_dim, mid_dim), nn.ReLU()) for _ in range(hidden - 1))
-        layers.append(nn.Linear(mid_dim, output_dim), nn.Tanh())
+        layers.extend([nn.Linear(mid_dim, output_dim), nn.Tanh()])
         self.shift_net = nn.Sequential(*layers)
-
 
     def forward(self, x, log_det_J, reverse=False):
         """Forward pass.
@@ -87,8 +85,8 @@ class AffineCoupling(nn.Module):
         """
         x1, x2 = x[:, self.mask_config::2], x[:, 1 - self.mask_config::2]
 
-        s = torch.exp(torch.tanh(self.scale_net(x1)))
-        t = torch.tanh(self.shift_net(x1))
+        s = torch.exp(self.scale_net(x1))
+        t = self.shift_net(x1)
 
         if reverse:
             x2 = (x2 - t) / s**-1
@@ -139,10 +137,9 @@ class Scaling(nn.Module):
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 logistic = TransformedDistribution(Uniform(torch.tensor(0.).to(device), torch.tensor(1.).to(device)), [SigmoidTransform().inv, AffineTransform(loc=0., scale=1.)])
 
+
 """NICE main model.
 """
-
-
 class NICE(nn.Module):
     def __init__(self, prior, coupling, coupling_type,
                  in_out_dim, mid_dim, hidden, device):

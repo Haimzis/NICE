@@ -1,6 +1,5 @@
 """Training procedure for NICE.
 """
-
 import argparse
 import numpy as np
 import torch
@@ -30,8 +29,8 @@ def test(flow, testloader, filename, epoch, sample_shape):
     flow.eval()  # set to inference mode
     with torch.no_grad():
         samples = flow.sample(100).cpu()
-        # a, b = samples.min(), samples.max()
-        # samples = (samples - a) / (b - a + 1e-10)
+        a, b = samples.min(), samples.max()
+        samples = (samples - a) / (b - a + 1e-10)
         samples = samples.view(-1, sample_shape[0], sample_shape[1], sample_shape[2])
         torchvision.utils.save_image(torchvision.utils.make_grid(samples),
                                      './samples/' + filename + 'epoch%d.png' % epoch)
@@ -44,8 +43,10 @@ def test(flow, testloader, filename, epoch, sample_shape):
         epoch_loss /= len(testloader)
     return epoch_loss
 
+
 def add_noise(x):
     return x + torch.zeros_like(x).uniform_(0., 1. / 256.)
+
 
 def main(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -98,14 +99,21 @@ def main(args):
         flow.parameters(), lr=args.lr)
 
     train_loss_lst, test_loss_lst = [], []
+    best_test_loss = np.inf
     for epoch in trange(args.epochs):
         train_loss = train(flow, trainloader, optimizer, epoch)
         test_loss = test(flow, testloader, model_save_filename, epoch, sample_shape)
         train_loss_lst.append(train_loss)
         test_loss_lst.append(test_loss)
-        print(f'Epoch: {epoch}, Train Loss: {train_loss}, Test Loss: {test_loss}')
-        torch.save(flow.state_dict(), './models/' + model_save_filename)
+        print(f'Epoch: {epoch}, Train Loss: {train_loss}, Test Loss: {test_loss}' \
+               + ", Test Loss Improved." if test_loss < best_test_loss else "")
 
+        # Save the best model
+        if test_loss < best_test_loss:
+            best_test_loss = test_loss
+            torch.save(flow.state_dict(), './models/' + model_save_filename)
+
+    # Plot losses graph
     fig, ax = plt.subplots()
     ax.plot(train_loss_lst)
     ax.plot(test_loss_lst)
@@ -113,6 +121,7 @@ def main(args):
     ax.set_ylabel('Loss')
     ax.legend(['Train Loss','Test Loss'])
     fig.savefig('./plots/'+ model_save_filename + '.png')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('')
