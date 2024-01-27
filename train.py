@@ -30,8 +30,8 @@ def test(flow, testloader, filename, epoch, sample_shape):
     flow.eval()  # set to inference mode
     with torch.no_grad():
         samples = flow.sample(100).cpu()
-        a, b = samples.min(), samples.max()
-        samples = (samples - a) / (b - a + 1e-10)
+        # a, b = samples.min(), samples.max()
+        # samples = (samples - a) / (b - a + 1e-10)
         samples = samples.view(-1, sample_shape[0], sample_shape[1], sample_shape[2])
         torchvision.utils.save_image(torchvision.utils.make_grid(samples),
                                      './samples/' + filename + 'epoch%d.png' % epoch)
@@ -142,7 +142,7 @@ if __name__ == '__main__':
                         default='additive')
     parser.add_argument('--coupling',
                         help='.',
-                        # type=int,
+                        type=int,
                         default=4)
     parser.add_argument('--mid-dim',
                         help='.',

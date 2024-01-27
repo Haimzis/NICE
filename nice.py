@@ -1,6 +1,7 @@
 """NICE model
 """
 
+import copy
 import torch
 import torch.nn as nn
 from torch.distributions.transforms import Transform, SigmoidTransform, AffineTransform
@@ -29,6 +30,7 @@ class AdditiveCoupling(nn.Module):
         layers.append(nn.Linear(mid_dim, output_dim))
         self.transform = nn.Sequential(*layers)
 
+        
     def forward(self, x, log_det_J, reverse=False):
         """Forward pass.
 
@@ -39,22 +41,15 @@ class AdditiveCoupling(nn.Module):
         Returns:
             transformed tensor and updated log-determinant of Jacobian.
         """
+        x1, x2 = x[:, self.mask_config::2], x[:, 1 - self.mask_config::2]
         if reverse:
-            # inverse
-            x1, y2 = x[:, self.mask_config::2], x[:, 1 - self.mask_config::2]
-            m = self.transform(y2)
-            x2 = x1 - m
-            x = torch.stack([x1, x2], dim=2).view(-1, self.in_out_dim)
-            return x, log_det_J
-
+            x2 = x2 - self.transform(x1)
         else:
-            # forward
-            y1, x2 = x[:, self.mask_config::2], x[:, 1 - self.mask_config::2]
-            m = self.transform(x2)
-            y2 = y1 + m
-            y = torch.stack([y1, y2], dim=2).view(-1, self.in_out_dim)
-            return y, log_det_J
-
+            x2 = x2 + self.transform(x1)
+        ordered_concat = [x1, x2] if self.mask_config == 0 else [x2, x1]
+        y = torch.stack(ordered_concat, dim=2).view(-1, self.in_out_dim)
+        return y, log_det_J
+    
 
 class AffineCoupling(nn.Module):
     def __init__(self, in_out_dim, mid_dim, hidden, mask_config):
@@ -67,18 +62,20 @@ class AffineCoupling(nn.Module):
         """
         super(AffineCoupling, self).__init__()
         self.mask_config = mask_config
-        self.scale_net = nn.Sequential(
-            nn.Linear(in_out_dim // 2, mid_dim),
-            nn.ReLU(),
-            *[layer for _ in range(hidden - 1) for layer in (nn.Linear(mid_dim, mid_dim), nn.ReLU())],
-            nn.Linear(mid_dim, in_out_dim // 2)
-        )
-        self.shift_net = nn.Sequential(
-            nn.Linear(in_out_dim // 2, mid_dim),
-            nn.ReLU(),
-            *[layer for _ in range(hidden - 1) for layer in (nn.Linear(mid_dim, mid_dim), nn.ReLU())],
-            nn.Linear(mid_dim, in_out_dim // 2)
-        )
+        self.in_out_dim = in_out_dim
+        input_dim=in_out_dim // 2 + (in_out_dim % 2 > 0) * self.mask_config
+        output_dim=in_out_dim // 2 + (in_out_dim % 2 > 0) * (1 - self.mask_config)
+
+        layers = [nn.Linear(input_dim, mid_dim), nn.ReLU()]
+        layers.extend(nn.Sequential(nn.Linear(mid_dim, mid_dim), nn.ReLU()) for _ in range(hidden - 1))
+        layers.append(nn.Linear(mid_dim, output_dim))
+        self.scale_net = nn.Sequential(*layers)
+        
+        layers = [nn.Linear(input_dim, mid_dim), nn.ReLU()]
+        layers.extend(nn.Sequential(nn.Linear(mid_dim, mid_dim), nn.ReLU()) for _ in range(hidden - 1))
+        layers.append(nn.Linear(mid_dim, output_dim))
+        self.shift_net = nn.Sequential(*layers)
+        # self.shift_net = copy.deepcopy(self.scale_net)
 
     def forward(self, x, log_det_J, reverse=False):
         """Forward pass.
@@ -91,19 +88,17 @@ class AffineCoupling(nn.Module):
         """
         x1, x2 = x[:, self.mask_config::2], x[:, 1 - self.mask_config::2]
 
-        s = self.scale_net(x1)
-        t = self.shift_net(x1)
-        s = torch.exp(s)  # Ensure scaling is positive
+        s = torch.exp(torch.tanh(self.scale_net(x1)))
+        t = torch.tanh(self.shift_net(x1))
 
         if reverse:
-            x2 = (x2 - t) / s
-            log_det_J -= s.log().sum(dim=1)  # Update log_det_J for inverse
+            x2 = (x2 - t) / s**-1
         else:
             x2 = s * x2 + t
-            log_det_J += s.log().sum(dim=1)  # Update log_det_J
+            log_det_J += s.log().sum(dim=1)
 
-        # Concatenate the tensors
-        y = torch.stack([x1, x2], dim=2).view(-1, self.in_out_dim)
+        ordered_concat = [x1, x2] if self.mask_config == 0 else [x2, x1]
+        y = torch.stack(ordered_concat, dim=2).view(-1, self.in_out_dim)
 
         return y, log_det_J
     
