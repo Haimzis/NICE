@@ -1,7 +1,6 @@
 """NICE model
 """
 
-import copy
 import torch
 import torch.nn as nn
 from torch.distributions.transforms import Transform, SigmoidTransform, AffineTransform
@@ -68,14 +67,14 @@ class AffineCoupling(nn.Module):
 
         layers = [nn.Linear(input_dim, mid_dim), nn.ReLU()]
         layers.extend(nn.Sequential(nn.Linear(mid_dim, mid_dim), nn.ReLU()) for _ in range(hidden - 1))
-        layers.append(nn.Linear(mid_dim, output_dim))
+        layers.append(nn.Linear(mid_dim, output_dim), nn.Tanh())
         self.scale_net = nn.Sequential(*layers)
         
         layers = [nn.Linear(input_dim, mid_dim), nn.ReLU()]
         layers.extend(nn.Sequential(nn.Linear(mid_dim, mid_dim), nn.ReLU()) for _ in range(hidden - 1))
-        layers.append(nn.Linear(mid_dim, output_dim))
+        layers.append(nn.Linear(mid_dim, output_dim), nn.Tanh())
         self.shift_net = nn.Sequential(*layers)
-        # self.shift_net = copy.deepcopy(self.scale_net)
+
 
     def forward(self, x, log_det_J, reverse=False):
         """Forward pass.
